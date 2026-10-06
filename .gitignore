@@ -1,0 +1,6 @@
+# raw scrape / intermediate data (redundant with the published NN.json dataset)
+data/
+scripts/
+__pycache__/
+*.pyc
+*.log
