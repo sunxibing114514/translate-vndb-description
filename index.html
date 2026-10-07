@@ -16,10 +16,11 @@
 
 <h2>调用方式</h2>
 <ul>
-<li>页面查询：在输入框输入编号（支持 <code>17</code>、<code>v17</code>、<code>#17</code>），点击「查询」。</li>
-<li>URL 参数：<code>?v=17</code> 打开即显示该编号结果；<code>?v=17&amp;mode=json</code> 整页仅输出原始 JSON，便于程序解析。</li>
+<li>纯文本：<code>?v=17</code> 整页仅返回该编号的中文简介纯文本；未收录时返回错误说明。编号可带前缀，如 <code>?v=v12849</code>。</li>
+<li>JSON：<code>?v=17&amp;mode=json</code> 整页仅返回原始 JSON，便于程序解析。</li>
+<li>页面查询：不带参数打开本页面，在输入框输入编号（支持 <code>17</code>、<code>v17</code>、<code>#17</code>），点击「查询」，结果显示在页面中。</li>
 <li>编号寻址：数据按每 500 个编号分块存放，文件序号 <code>= (编号 - 1) ÷ 500 + 1</code>（6 位零填充）。例如 v1~v500 → <code>000001.json</code>，v501~v1000 → <code>000002.json</code>，v12849 → <code>000026.json</code>；无条目的区间不生成文件。</li>
-<li>条目格式：<code>{"v": "17", "translate": "……"}</code>；未收录编号返回相应错误信息。</li>
+<li>条目格式：<code>{"v": "17", "translate": "……"}</code>。</li>
 </ul>
 
 <form id="queryForm">
@@ -94,42 +95,56 @@
     });
   }
 
-  // 渲染结果
-  function render(v, outcome, mode) {
-    if (mode === "json") {
-      // API 式输出：整个页面只输出原始 JSON
-      document.title = "v" + v;
-      document.body.innerHTML = "<pre id=\"jsonOut\"></pre>";
-      document.getElementById("jsonOut").textContent = JSON.stringify(
-        outcome.error
-          ? { v: v, error: outcome.error }
-          : { v: outcome.entry.v, translate: outcome.entry.translate },
-        null, 2);
-      return;
-    }
-    jsonOut.textContent = "";
-    result.innerHTML = "";
-    if (outcome.error) {
-      result.textContent = "错误：" + outcome.error;
-      return;
-    }
-    var entry = outcome.entry;
-    jsonOut.textContent = JSON.stringify(entry, null, 2);
-    var h3 = document.createElement("h3");
-    h3.textContent = "v" + entry.v + "（数据文件：" + outcome.file + "）";
-    var p = document.createElement("p");
-    p.textContent = String(entry.translate || "");
-    result.appendChild(h3);
-    result.appendChild(p);
+  // 整页替换为纯文本（pre 保留换行，不引入任何样式）
+  function renderPlainText(text) {
+    document.title = "v";
+    document.body.innerHTML = "";
+    var pre = document.createElement("pre");
+    pre.textContent = text;
+    document.body.appendChild(pre);
   }
 
-  function run(v, mode) {
-    if (mode !== "json") {
-      jsonOut.textContent = "";
-      result.textContent = "查询中……";
-    }
+  // 整页替换为纯 JSON
+  function renderPureJSON(obj) {
+    document.title = "v";
+    document.body.innerHTML = "";
+    var pre = document.createElement("pre");
+    pre.textContent = JSON.stringify(obj, null, 2);
+    document.body.appendChild(pre);
+  }
+
+  // URL 参数调用：?v=x → 纯文本；?v=x&mode=json → 纯 JSON
+  function runApi(v, mode) {
     query(v).then(function (outcome) {
-      render(v, outcome, mode);
+      if (mode === "json") {
+        renderPureJSON(outcome.error
+          ? { v: String(v), error: outcome.error }
+          : { v: outcome.entry.v, translate: outcome.entry.translate });
+      } else {
+        renderPlainText(outcome.error ? "错误：" + outcome.error : String(outcome.entry.translate || ""));
+      }
+    });
+  }
+
+  // 页面查询：结果就地显示，保留界面
+  function runUI(v) {
+    jsonOut.textContent = "";
+    result.innerHTML = "";
+    result.textContent = "查询中……";
+    query(v).then(function (outcome) {
+      jsonOut.textContent = "";
+      result.innerHTML = "";
+      if (outcome.error) {
+        result.textContent = "错误：" + outcome.error;
+        return;
+      }
+      jsonOut.textContent = JSON.stringify(outcome.entry, null, 2);
+      var h3 = document.createElement("h3");
+      h3.textContent = "v" + outcome.entry.v + "（数据文件：" + outcome.file + "）";
+      var p = document.createElement("p");
+      p.textContent = String(outcome.entry.translate || "");
+      result.appendChild(h3);
+      result.appendChild(p);
     });
   }
 
@@ -138,24 +153,23 @@
     var v = parseV(input.value);
     if (v === null) {
       jsonOut.textContent = "";
+      result.innerHTML = "";
       result.textContent = "错误：请输入正整数编号（可带 v 前缀），如 17 或 v17。";
       return;
     }
-    var params = new URLSearchParams();
-    params.set("v", String(v));
-    if (modeParam === "json") params.set("mode", "json");
-    history.replaceState(null, "", "?" + params.toString());
-    run(v, modeParam);
+    runUI(v);
   });
 
-  // 初始化：读取 URL 参数，支持 ?v=17 与 ?v=17&mode=json
+  // 初始化：带 ?v= 参数时进入 API 模式（纯文本 / 纯 JSON），否则显示交互界面
   var params = new URLSearchParams(window.location.search);
-  var vParam = parseV(params.get("v"));
-  var modeParam = params.get("mode") === "json" ? "json" : "human";
-
-  if (vParam !== null) {
-    input.value = String(vParam);
-    run(vParam, modeParam);
+  if (params.get("v") !== null) {
+    var mode = params.get("mode") === "json" ? "json" : "text";
+    var vParam = parseV(params.get("v"));
+    if (vParam === null) {
+      renderPlainText("错误：编号无效。?v= 需为正整数（可带 v 前缀），如 ?v=17。");
+    } else {
+      runApi(vParam, mode);
+    }
   }
 })();
 </script>
