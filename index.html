@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>translate-vndb-description 查询接口</title>
+</head>
+<body>
+
+<h1>translate-vndb-description 查询接口</h1>
+
+<p>
+输入 VNDB 视觉小说编号（v 编号），返回对应的中文简介。
+数据文件与本页面位于同一目录（000001.json … 000122.json）。
+</p>
+
+<h2>调用方式</h2>
+<ul>
+<li>页面查询：在输入框输入编号（支持 <code>17</code>、<code>v17</code>、<code>#17</code>），点击「查询」。</li>
+<li>URL 参数：<code>?v=17</code> 打开即显示该编号结果；<code>?v=17&amp;mode=json</code> 整页仅输出原始 JSON，便于程序解析。</li>
+<li>编号寻址：数据按每 500 个编号分块存放，文件序号 <code>= (编号 - 1) ÷ 500 + 1</code>（6 位零填充）。例如 v1~v500 → <code>000001.json</code>，v501~v1000 → <code>000002.json</code>，v12849 → <code>000026.json</code>；无条目的区间不生成文件。</li>
+<li>条目格式：<code>{"v": "17", "translate": "……"}</code>；未收录编号返回相应错误信息。</li>
+</ul>
+
+<form id="queryForm">
+<label for="vInput">v 编号：</label>
+<input id="vInput" name="v" autocomplete="off" placeholder="如 17、v17 或 #17">
+<button type="submit">查询</button>
+</form>
+
+<hr>
+
+<h2>结果</h2>
+<pre id="jsonOutput"></pre>
+<div id="result"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  var form = document.getElementById("queryForm");
+  var input = document.getElementById("vInput");
+  var jsonOut = document.getElementById("jsonOutput");
+  var result = document.getElementById("result");
+
+  // 解析输入：允许 "17"、"v17"、"#17"，返回正整数或 null
+  function parseV(text) {
+    var s = String(text || "").trim().toLowerCase();
+    s = s.replace(/^[v#]/, "");
+    if (!/^\d+$/.test(s)) return null;
+    var n = parseInt(s, 10);
+    return n >= 1 ? n : null;
+  }
+
+  // 编号 → 数据文件：每 500 个编号一个文件，6 位零填充
+  function fileFor(v) {
+    var idx = Math.floor((v - 1) / 500) + 1;
+    var name = String(idx);
+    while (name.length < 6) name = "0" + name;
+    return name + ".json";
+  }
+
+  function normalizeV(value) {
+    return String(value).trim().toLowerCase().replace(/^[v#]/, "");
+  }
+
+  // 查询：返回 { entry, file } 或 { error }
+  function query(v) {
+    var file = fileFor(v);
+    return fetch(file).then(function (res) {
+      if (res.status === 404) {
+        return { error: "编号 v" + v + " 所在区间没有数据文件（" + file + "），该区间未收录任何条目。" };
+      }
+      if (!res.ok) {
+        return { error: "加载数据文件 " + file + " 失败：HTTP " + res.status };
+      }
+      return res.json().then(function (data) {
+        if (!Array.isArray(data)) {
+          return { error: "数据文件 " + file + " 格式错误：顶层不是数组。" };
+        }
+        var want = String(v);
+        for (var i = 0; i < data.length; i++) {
+          var e = data[i];
+          if (e && normalizeV(e.v) === want) {
+            return { entry: e, file: file };
+          }
+        }
+        return { error: "编号 v" + v + " 未收录（文件 " + file + " 中没有该条目）。" };
+      }, function () {
+        return { error: "数据文件 " + file + " 解析失败：不是合法 JSON。" };
+      });
+    }, function (err) {
+      return { error: "无法发起请求。本页面需通过 HTTP 服务访问（file:// 直开时浏览器禁止读取数据文件）。" + (err && err.message ? "（" + err.message + "）" : "") };
+    });
+  }
+
+  // 渲染结果
+  function render(v, outcome, mode) {
+    if (mode === "json") {
+      // API 式输出：整个页面只输出原始 JSON
+      document.title = "v" + v;
+      document.body.innerHTML = "<pre id=\"jsonOut\"></pre>";
+      document.getElementById("jsonOut").textContent = JSON.stringify(
+        outcome.error
+          ? { v: v, error: outcome.error }
+          : { v: outcome.entry.v, translate: outcome.entry.translate },
+        null, 2);
+      return;
+    }
+    jsonOut.textContent = "";
+    result.innerHTML = "";
+    if (outcome.error) {
+      result.textContent = "错误：" + outcome.error;
+      return;
+    }
+    var entry = outcome.entry;
+    jsonOut.textContent = JSON.stringify(entry, null, 2);
+    var h3 = document.createElement("h3");
+    h3.textContent = "v" + entry.v + "（数据文件：" + outcome.file + "）";
+    var p = document.createElement("p");
+    p.textContent = String(entry.translate || "");
+    result.appendChild(h3);
+    result.appendChild(p);
+  }
+
+  function run(v, mode) {
+    if (mode !== "json") {
+      jsonOut.textContent = "";
+      result.textContent = "查询中……";
+    }
+    query(v).then(function (outcome) {
+      render(v, outcome, mode);
+    });
+  }
+
+  form.addEventListener("submit", function (ev) {
+    ev.preventDefault();
+    var v = parseV(input.value);
+    if (v === null) {
+      jsonOut.textContent = "";
+      result.textContent = "错误：请输入正整数编号（可带 v 前缀），如 17 或 v17。";
+      return;
+    }
+    var params = new URLSearchParams();
+    params.set("v", String(v));
+    if (modeParam === "json") params.set("mode", "json");
+    history.replaceState(null, "", "?" + params.toString());
+    run(v, modeParam);
+  });
+
+  // 初始化：读取 URL 参数，支持 ?v=17 与 ?v=17&mode=json
+  var params = new URLSearchParams(window.location.search);
+  var vParam = parseV(params.get("v"));
+  var modeParam = params.get("mode") === "json" ? "json" : "human";
+
+  if (vParam !== null) {
+    input.value = String(vParam);
+    run(vParam, modeParam);
+  }
+})();
+</script>
+
+</body>
+</html>
