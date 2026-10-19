@@ -1,10 +1,10 @@
 {
   "announcements": [
     {
-      "id": "20261017-01",
-      "title": "公告标题",
-      "content": "实例",
-      "date": "2026-10-17",
+      "id": "20261019-01",
+      "title": "欢迎使用VNclient",
+      "content": "软件完全免费。软件动态、使用提示和维护通知会在这里持续更新。\n\n## 有问题，随时GitHub反馈\n\n- 描述问题出现的步骤\n\n> 如果觉得软件好用，麻烦多帮忙宣传推广软件\n\n[反馈问题](https://github.com/sunxibing114514/VNclient/issues)",
+      "date": "2026-10-19",
       "pinned": true
     }
   ]
